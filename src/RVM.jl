@@ -45,55 +45,8 @@ end
 
 using Optim;
 
-function trainRVMRegressionRef!(mdl::RVMGaussianModel, X::Matrix, t::Vector)
-    N = size(X, 1);
-    Phi = mdl.kernelFun(X, X);
-
-    Phi = [Phi ones(N)];
-    paramsStart = rand(N + 2);
-    lb = zeros(N + 2)
-    ub = Inf * ones(N + 2)
-    objFun(params) = rvmRegressionMarginalLikelihood(params, t, Phi);
-    dFun = DifferentiableFunction(objFun);
-    optResult = fminbox(dFun, paramsStart, lb, ub);
-
-    alphaOpt = optResult.minimum[1:(end-1)]
-    betaOpt = optResult.minimum[end]
-
-    mdl.X = X
-    mdl.alphaOpt = alphaOpt
-    mdl.betaOpt = betaOpt
-end
-
-function trainRVMClassificationRef!(mdl::RVMBernoulliModel, X::Matrix, t::Vector)
-    N = size(X, 1)
-    Phi = mdl.kernelFun(X, X)
-    tol = 1e-5
-
-    Phi = [Phi ones(N)]
-    alpha = rand(N + 1)
-    w = randn(N + 1)
-    converged = false
-    
-    while !converged
-        objFunW(w) = rvmClassificationPosterior(w, t, Phi, alpha)
-        optW = optimize(objFunW, w, method = :cg)
-        w = optW.minimum
-
-        objFunA(a) = rvmClassificationMarginalLikelihood(a, t, Phi, w)
-        optA = optimize(objFunA, alpha, method = :cg)
-        alphaNew = optA.minimum
-
-        if sum((alphaNew - alpha) .^ 2) < tol
-            converged = true
-        end
-
-        alpha = alphaNew
-    end
-
-    mdl.X = X
-    mdl.alpha = alpha
-    mdl.w = w
+function sigmoid(x::Vector)
+    f = 1 ./ (1 + exp(-x));
 end
 
 function rvmBernoulliPosterior(params::Vector, Phi::Matrix, t::Vector, alpha::Vector)
@@ -141,6 +94,7 @@ function calculateRVMPosterior!(mdl::RVMGaussianModel, Phi::Matrix, t::Vector, P
     e = t - y
     e_sq::Float64 = dot(e, e)
 
+    N, M_all = size(Phi)
     dataLik = (N * log(mdl.beta) - mdl.beta * e_sq) / 2
 
     Phi_Sigma_Phit::Matrix = Phi_sub * Sigma_Phit
@@ -148,7 +102,6 @@ function calculateRVMPosterior!(mdl::RVMGaussianModel, Phi::Matrix, t::Vector, P
     Phi_Sigma_Phit_PhiAll::Matrix = Phi_Sigma_Phit * Phi
     
     beta_sq = mdl.beta * mdl.beta
-    M_all = length(mdl.alpha)
     Qs = zeros(M_all)
     Ss = zeros(M_all)
     
@@ -311,7 +264,8 @@ function preprocessBasis(K::Matrix)
     return Ktf, Scales
 end
 
-function initTrain(mdl::AbstractRVMModel, X::Matrix, t::Vector, options::AbstractRVMTrainingOptions)
+function initTrain!(mdl::AbstractRVMModel, X::Matrix, t::Vector, options::AbstractRVMTrainingOptions)
+    mdl.X = X
     Phi::Matrix = mdl.kernelFun(X, X)
     Phi, PhiScales = preprocessBasis(Phi)
     requiredIdxs = BitArray{1}(size(Phi, 2))
@@ -323,7 +277,6 @@ end
 function initModel!(mdl::RVMGaussianModel, Phi::Matrix, t::Vector, options::RVMGaussianTrainingOptions)
     N, M = size(Phi)
 
-    mdl.X = X
     mdl.beta = 100 / var(t)
     mdl.alpha = Inf * ones(M)
     mdl.w = zeros(M)
@@ -339,7 +292,6 @@ end
 function initModel!(mdl::RVMBernoulliModel, Phi::Matrix, t::Vector, options::RVMBernoulliTrainingOptions)
     N, M = size(Phi)
     
-    mdl.X = X
     mdl.alpha = Inf * ones(M)
     mdl.w = zeros(M)
 
@@ -367,6 +319,7 @@ end
 
 function updateSpecificModel!(mdl::RVMGaussianModel, options::RVMGaussianTrainingOptions, Phi::Matrix, t::Vector, Phi_t::Matrix, Phi_t_Target::Vector, Phi_t_Phi_diag::Vector, itIdx::Int64)
     if itIdx <= options.betaUpdateStart || rem(itIdx, options.betaUpdateFreq) == 0
+        N = size(Phi, 1)
         Ss, Qs, ss, qs, factors, logML, e, Gamma = calculateRVMFullStatistics!(mdl, Phi, t, Phi_t, Phi_t_Target, Phi_t_Phi_diag)
         e_sq = sum(e .^ 2)
         mdl.beta = (N - sum(Gamma)) / e_sq
@@ -378,7 +331,7 @@ function updateSpecificModel!(mdl::RVMBernoulliModel, options::RVMBernoulliTrain
 end
 
 function trainRVM!(mdl::AbstractRVMModel, X::Matrix, t::Vector, options::AbstractRVMTrainingOptions)
-    Phi, PhiScales, requiredIdxs = initTrain(mdl, X, t, options)
+    Phi, PhiScales, requiredIdxs = initTrain!(mdl, X, t, options)
     #Phi = [ones(N) Phi];
     
     N, M = size(Phi)
