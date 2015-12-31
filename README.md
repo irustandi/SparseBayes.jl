@@ -16,3 +16,7 @@ julia> Pkg.add("SparseBayes")
 ```
 
 SparseBayes.jl requires the [Optim.jl] (https://github.com/JuliaOpt/Optim.jl) package.
+
+## Examples
+
+Some examples of using the sparse Bayesian learning package is available in the examples/ folder.
