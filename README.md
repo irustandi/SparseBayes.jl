@@ -1,6 +1,6 @@
 # SparseBayes.jl
 
-[![Build Status](https://travis-ci.org/irustandi/SparseBayes.jl.svg?branch=master)](https://travis-ci.org/irustandi/SparseBayes.jl)
+[![Build Status](https://travis-ci.org/irustandi/SparseBayes.jl.svg?branch=master)](https://travis-ci.org/irustandi/SparseBayes.jl) [![Coverage Status](https://coveralls.io/repos/irustandi/SparseBayes.jl/badge.svg?branch=master)](https://coveralls.io/r/irustandi/SparseBayes.jl?branch=master)
 
 A Julia package for sparse Bayesian learning
 --------------------------------------------
