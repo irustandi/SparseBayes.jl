@@ -247,7 +247,7 @@ function processRVMAction(action::RVMAction, alpha::Float64, s::Float64, factor:
         return Inf
     end
 
-    return (s ^ 2) / factor
+    return (s * s) / factor
 end
 
 function preprocessBasis(K::Matrix)
