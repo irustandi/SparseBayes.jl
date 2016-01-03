@@ -69,22 +69,22 @@ function rvmBernoulliPosterior_hess!(params::Vector, storage::Matrix, Phi::Matri
     beta = y .* (1 - y)
     Phi_B = Phi .* (beta * ones(1, size(Phi, 2)))
     A = diagm(alpha)
-    storage[:,:] = (transpose(Phi_B) * Phi + A)
+    storage[:] = (transpose(Phi_B) * Phi + A)
 end
 
 function getSubset(alpha::Vector, Phi::Matrix)
     indices = !isinf(alpha)
     Phi_sub = Phi[:, indices]
-    Phi_sub_t = transpose(Phi_sub)
     alpha_sub = alpha[indices]
     A = diagm(alpha_sub)
 
-    return indices, Phi_sub, Phi_sub_t, alpha_sub, A
+    return indices, Phi_sub, alpha_sub, A
 end
 
 function calculateRVMPosterior!(mdl::RVMGaussianModel, Phi::Matrix, t::Vector, Phi_t::Matrix, Phi_t_Target::Vector, Phi_t_Phi_diag::Vector)
-    indices, Phi_sub, Phi_sub_t, alpha_sub, A = getSubset(mdl.alpha, Phi)
+    indices, Phi_sub, alpha_sub, A = getSubset(mdl.alpha, Phi)
     
+    Phi_sub_t = transpose(Phi_sub)
     Hessian = A + mdl.beta * Phi_sub_t * Phi_sub
     U = chol(Hessian)
     Ui = inv(U)
@@ -136,33 +136,34 @@ function calculateRVMPosterior!(mdl::RVMGaussianModel, Phi::Matrix, t::Vector, P
     return Mu, U, Ui, alpha_sub, e, dataLik, Ss, Qs
 end
 
-function calculateRVMPosterior!(mdl::RVMBernoulliModel, Phi::Matrix, t::Vector, Phi_t::Matrix, Phi_t_Target::Vector, Phi_t_Phi_diag::Vector)
-    indices, Phi_sub, Phi_sub_t, alpha_sub, A = getSubset(mdl.alpha, Phi)
-    
-    N, M = size(Phi_sub)
-    
+function calculateW_MAP(Phi_sub::Matrix, t::Vector, alpha_sub::Vector, initVal::Vector)
     f(params) = rvmBernoulliPosterior(params, Phi_sub, t, alpha_sub)
     g!(params, storage) = rvmBernoulliPosterior_grad!(params, storage, Phi_sub, t, alpha_sub)
     h!(params, storage) = rvmBernoulliPosterior_hess!(params, storage, Phi_sub, t, alpha_sub)
     #@time opt = optimize(f, randn(length(alpha_sub)), method = :cg)
     #opt = optimize(f, g!, randn(length(alpha_sub)), method = :l_bfgs)
-    initW = mdl.w[indices]
-    opt = optimize(f, g!, h!, initW, method = :newton)
+    opt = optimize(f, g!, h!, initVal, method = :newton)
 
-    Mu = opt.minimum
+    return opt.minimum
+end
+
+function calculateRVMPosterior!(mdl::RVMBernoulliModel, Phi::Matrix, t::Vector, Phi_t::Matrix, Phi_t_Target::Vector, Phi_t_Phi_diag::Vector)
+    indices, Phi_sub, alpha_sub, A = getSubset(mdl.alpha, Phi)
+
+    Mu = calculateW_MAP(Phi_sub, t, alpha_sub, mdl.w[indices])
+
+    N, M = size(Phi_sub)
+    
     mdl.w[:] = 0
     mdl.w[indices] = Mu
     y = sigmoid(Phi_sub * Mu)
     beta = y .* (1 - y)
-    Phi_B = Phi_sub .* (beta * ones(1, M))
-    H = (transpose(Phi_B) * Phi_sub + A)
 
-    U = chol(H)
-    Ui = inv(U)
-    e = t - y
     dataLik = dot(t, log(y)) + dot(1-t, log(1-y))
 
     betaBASIS_PHI = Phi_t * (Phi_sub .* (beta * ones(1, M)))
+    
+    e = t - y
     Qs = Phi_t * e
     #Ss = (Phi_t .^ 2) * beta - sum((betaBASIS_PHI * Ui) .^ 2, 2)
     term1::Vector = (Phi_t .* Phi_t) * beta
@@ -173,6 +174,11 @@ function calculateRVMPosterior!(mdl::RVMBernoulliModel, Phi::Matrix, t::Vector, 
     #    term1[m] = dot(Phi[:,m] .^ 2, beta)
     #end
 
+    Phi_B = Phi_sub .* (beta * ones(1, M))
+    Hessian = (transpose(Phi_B) * Phi_sub + A)
+    U = chol(Hessian)
+    Ui = inv(U)
+    
     betaBASIS_PHI_Ui = betaBASIS_PHI * Ui
     term2::Vector = sum(betaBASIS_PHI_Ui .* betaBASIS_PHI_Ui, 2)[:,1]
     Ss = term1 - term2
@@ -187,7 +193,7 @@ function calculateFactorQuantities(alpha::Float64, S::Float64, Q::Float64)
     q::Float64 = Q
     
     if !isinf(alpha)
-        multTerm = alpha / (alpha - S)
+        multTerm::Float64 = alpha / (alpha - S)
         s = multTerm * S
         q = multTerm * Q
     end
