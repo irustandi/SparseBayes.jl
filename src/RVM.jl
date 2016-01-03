@@ -72,12 +72,18 @@ function rvmBernoulliPosterior_hess!(params::Vector, storage::Matrix, Phi::Matri
     storage[:,:] = (transpose(Phi_B) * Phi + A)
 end
 
-function calculateRVMPosterior!(mdl::RVMGaussianModel, Phi::Matrix, t::Vector, Phi_t::Matrix, Phi_t_Target::Vector, Phi_t_Phi_diag::Vector)
-    indices = !isinf(mdl.alpha)
-    Phi_sub = Phi[:,indices]
+function getSubset(alpha::Vector, Phi::Matrix)
+    indices = !isinf(alpha)
+    Phi_sub = Phi[:, indices]
     Phi_sub_t = transpose(Phi_sub)
-    alpha_sub = mdl.alpha[indices]
+    alpha_sub = alpha[indices]
     A = diagm(alpha_sub)
+
+    return indices, Phi_sub, Phi_sub_t, alpha_sub, A
+end
+
+function calculateRVMPosterior!(mdl::RVMGaussianModel, Phi::Matrix, t::Vector, Phi_t::Matrix, Phi_t_Target::Vector, Phi_t_Phi_diag::Vector)
+    indices, Phi_sub, Phi_sub_t, alpha_sub, A = getSubset(mdl.alpha, Phi)
     
     Hessian = A + mdl.beta * Phi_sub_t * Phi_sub
     U = chol(Hessian)
@@ -131,11 +137,7 @@ function calculateRVMPosterior!(mdl::RVMGaussianModel, Phi::Matrix, t::Vector, P
 end
 
 function calculateRVMPosterior!(mdl::RVMBernoulliModel, Phi::Matrix, t::Vector, Phi_t::Matrix, Phi_t_Target::Vector, Phi_t_Phi_diag::Vector)
-    indices = !isinf(mdl.alpha)
-    Phi_sub = Phi[:,indices]
-    Phi_sub_t = transpose(Phi_sub)
-    alpha_sub = mdl.alpha[indices]
-    A = diagm(alpha_sub)
+    indices, Phi_sub, Phi_sub_t, alpha_sub, A = getSubset(mdl.alpha, Phi)
     
     N, M = size(Phi_sub)
     
@@ -180,6 +182,21 @@ function calculateRVMPosterior!(mdl::RVMBernoulliModel, Phi::Matrix, t::Vector, 
     return Mu, U, Ui, alpha_sub, e, dataLik, Ss, Qs
 end
 
+function calculateFactorQuantities(alpha::Float64, S::Float64, Q::Float64)
+    s::Float64 = S
+    q::Float64 = Q
+    
+    if !isinf(alpha)
+        multTerm = alpha / (alpha - S)
+        s = multTerm * S
+        q = multTerm * Q
+    end
+
+    factor::Float64 = q^2 - s
+
+    return s, q, factor
+end     
+
 function calculateRVMFullStatistics!(mdl::AbstractRVMModel, Phi::Matrix, t::Vector, Phi_t::Matrix, Phi_t_Target::Vector, Phi_t_Phi_diag::Vector)
     N, M = size(Phi)
 
@@ -197,23 +214,14 @@ function calculateRVMFullStatistics!(mdl::AbstractRVMModel, Phi::Matrix, t::Vect
     factors = zeros(M)
     
     for idx = 1:length(mdl.alpha)
-        if isinf(mdl.alpha[idx])
-            ss[idx] = Ss[idx]
-            qs[idx] = Qs[idx]
-        else
-            ss[idx] = (mdl.alpha[idx] * Ss[idx])/(mdl.alpha[idx] - Ss[idx])
-            qs[idx] = (mdl.alpha[idx] * Qs[idx])/(mdl.alpha[idx] - Ss[idx])
-        end
-        
-        factors[idx] = qs[idx] ^ 2 - ss[idx]
+        ss[idx], qs[idx], factors[idx] = calculateFactorQuantities(mdl.alpha[idx], Ss[idx], Qs[idx])
     end
 
     return Ss, Qs, ss, qs, factors, logML, e, Gamma
 end
 
-function calculateRVMActionAndDeltaML(alpha::Float64, Q::Float64, S::Float64, q::Float64, s::Float64, factor::Float64, isRequired::Bool)
-    action = Hold
-    DeltaML::Float64 = 0.0
+function calculateRVMAction(alpha::Float64, factor::Float64, isRequired::Bool)
+    action::RVMAction = Hold
 
     used = !isinf(alpha)
     positiveFactor = factor > 1e-12
@@ -225,19 +233,25 @@ function calculateRVMActionAndDeltaML(alpha::Float64, Q::Float64, S::Float64, q:
         action = Add
     end
     
+    return action
+end
+
+function calculateRVMDeltaML(action::RVMAction, alpha::Float64, Q::Float64, S::Float64, q::Float64, s::Float64, factor::Float64)
+    DeltaML::Float64 = 0.0
     if action == Reestimate
-        NewAlpha = (s ^ 2) / factor
-        Delta = (1 / NewAlpha - 1 / alpha)
+        NewAlpha::Float64 = (s ^ 2) / factor
+        Delta::Float64 = (1 / NewAlpha - 1 / alpha)
         DeltaML = (Delta * (Q ^ 2) / (Delta * S + 1) - log(1 + S * Delta)) / 2
         #DeltaML = 0.5 * (s * Delta + log(1 + s / alpha) - log(1 + s / NewAlpha))
     elseif action == Delete
         DeltaML = -0.5 * (q ^ 2 / (s + alpha) - log(1 + s / alpha))
         #@printf "delete delta %g\n" DeltaML
     elseif action == Add
-        quot = Q ^ 2 / S
+        quot::Float64 = Q ^ 2 / S
         DeltaML = (quot - 1 - log(quot)) / 2
     end
-    return action, DeltaML
+
+    return DeltaML
 end
 
 function processRVMAction(action::RVMAction, alpha::Float64, s::Float64, factor::Float64)
@@ -354,9 +368,8 @@ function trainRVM!(mdl::AbstractRVMModel, X::Matrix, t::Vector, options::Abstrac
 
         # process each basis
         for idx in 1:M
-            act, dML = calculateRVMActionAndDeltaML(mdl.alpha[idx], Qs[idx], Ss[idx], qs[idx], ss[idx], factors[idx], requiredIdxs[idx])
-            actions[idx] = act
-            DeltaML[idx] = dML
+            actions[idx] = calculateRVMAction(mdl.alpha[idx], factors[idx], requiredIdxs[idx])
+            DeltaML[idx] = calculateRVMDeltaML(actions[idx], mdl.alpha[idx], Qs[idx], Ss[idx], qs[idx], ss[idx], factors[idx])
             #@printf "%g " DeltaML[idx]
         end
 
