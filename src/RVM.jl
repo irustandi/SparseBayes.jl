@@ -198,7 +198,7 @@ function calculateFactorQuantities(alpha::Float64, S::Float64, Q::Float64)
         q = multTerm * Q
     end
 
-    factor::Float64 = q^2 - s
+    factor::Float64 = q * q - s
 
     return s, q, factor
 end     
