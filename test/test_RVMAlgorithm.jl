@@ -39,3 +39,54 @@ s, q, factor = SparseBayes.calculateFactorQuantities(Inf, S, Q)
 @test_approx_eq factor factorRef
 
 end
+
+module TestCalculateRVMAction
+
+using SparseBayes
+using Base.Test
+
+alpha = Inf
+factor = -1.
+isRequired = false
+
+# isRequired = false
+
+# inf alpha, negative factor
+@test SparseBayes.calculateRVMAction(alpha, factor, isRequired) == SparseBayes.Hold
+
+# inf alpha, positive factor
+factor = 1.
+@test SparseBayes.calculateRVMAction(alpha, factor, isRequired) == SparseBayes.Add
+
+# finite alpha, negative factor
+alpha = 1.
+factor = -1.
+@test SparseBayes.calculateRVMAction(alpha, factor, isRequired) == SparseBayes.Delete
+
+# finite alpha, positive factor
+factor = 1.
+@test SparseBayes.calculateRVMAction(alpha, factor, isRequired) == SparseBayes.Reestimate
+
+
+# isRequired = true
+isRequired = true
+alpha = Inf
+factor = -1.
+
+# inf alpha, negative factor
+@test SparseBayes.calculateRVMAction(alpha, factor, isRequired) == SparseBayes.Hold
+
+# inf alpha, positive factor
+factor = 1.
+@test SparseBayes.calculateRVMAction(alpha, factor, isRequired) == SparseBayes.Add
+
+# finite alpha, negative factor
+alpha = 1.
+factor = -1.
+@test SparseBayes.calculateRVMAction(alpha, factor, isRequired) == SparseBayes.Hold
+
+# finite alpha, positive factor
+factor = 1.
+@test SparseBayes.calculateRVMAction(alpha, factor, isRequired) == SparseBayes.Reestimate
+
+end
