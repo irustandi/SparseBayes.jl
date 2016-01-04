@@ -5,9 +5,9 @@ function kernelLinear(X1::Matrix, X2::Matrix)
     S = zeros(N1, N2)
 
     for idx1 in 1:N1
-        X1Vec::Vector = transpose(X1[idx1,:])
+        X1Vec::Vector = transpose(X1[idx1,:])[:,1]
         for idx2 in 1:N2
-            X2Vec::Vector = transpose(X2[idx2,:])
+            X2Vec::Vector = transpose(X2[idx2,:])[:,1]
             S[idx1, idx2] = dot(X1Vec, X2Vec)
         end
     end
