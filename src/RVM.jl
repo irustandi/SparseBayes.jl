@@ -210,8 +210,8 @@ function calculateRVMFullStatistics!(mdl::AbstractRVMModel, Phi::Matrix, t::Vect
     
     # calculate log marginal likelihood
     logdetHOver2 = sum(log(diag(U)))
-    logML::Float64 = dataLik - (transpose(Mu .^ 2) * alpha_sub)[1] / 2 + sum(log(alpha_sub))/2 - logdetHOver2
-    diagC = sum(Ui .^ 2, 2)
+    logML::Float64 = dataLik - (transpose(Mu .* Mu) * alpha_sub)[1] / 2 + sum(log(alpha_sub))/2 - logdetHOver2
+    diagC = sum(Ui .* Ui, 2)
     Gamma = 1 - alpha_sub .* diagC
     
     # calculate the statistics for each basis vector
@@ -245,15 +245,15 @@ end
 function calculateRVMDeltaML(action::RVMAction, alpha::Float64, Q::Float64, S::Float64, q::Float64, s::Float64, factor::Float64)
     DeltaML::Float64 = 0.0
     if action == Reestimate
-        NewAlpha::Float64 = (s ^ 2) / factor
+        NewAlpha::Float64 = (s * s) / factor
         Delta::Float64 = (1 / NewAlpha - 1 / alpha)
-        DeltaML = (Delta * (Q ^ 2) / (Delta * S + 1) - log(1 + S * Delta)) / 2
+        DeltaML = (Delta * (Q * Q) / (Delta * S + 1) - log(1 + S * Delta)) / 2
         #DeltaML = 0.5 * (s * Delta + log(1 + s / alpha) - log(1 + s / NewAlpha))
     elseif action == Delete
-        DeltaML = -0.5 * (q ^ 2 / (s + alpha) - log(1 + s / alpha))
+        DeltaML = -0.5 * (q * q / (s + alpha) - log(1 + s / alpha))
         #@printf "delete delta %g\n" DeltaML
     elseif action == Add
-        quot::Float64 = Q ^ 2 / S
+        quot::Float64 = Q * Q / S
         DeltaML = (quot - 1 - log(quot)) / 2
     end
 
@@ -273,7 +273,7 @@ end
 function preprocessBasis(K::Matrix)
     N, M = size(K)
 
-    Scales::Vector = transpose(sqrt(sum(K .^ 2, 1)))[:, 1]
+    Scales::Vector = transpose(sqrt(sum(K .* K, 1)))[:, 1]
     Scales[Scales .== 0] = 1;
 
     Ktf = deepcopy(K)
@@ -341,7 +341,7 @@ function updateSpecificModel!(mdl::RVMGaussianModel, options::RVMGaussianTrainin
     if itIdx <= options.betaUpdateStart || rem(itIdx, options.betaUpdateFreq) == 0
         N = size(Phi, 1)
         Ss, Qs, ss, qs, factors, logML, e, Gamma = calculateRVMFullStatistics!(mdl, Phi, t, Phi_t, Phi_t_Target, Phi_t_Phi_diag)
-        e_sq = sum(e .^ 2)
+        e_sq = sum(e .* e)
         mdl.beta = (N - sum(Gamma)) / e_sq
     end
 end
